@@ -16,6 +16,8 @@ using namespace Eigen;
 using json = nlohmann::json;
 
 
+const int latency = 100;
+
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -58,45 +60,56 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+          double delta = j[1]["steering_angle"];
+          double a = j[1]["throttle"];
 
-          // convert to car coordinates
+          // convert waypoints to car coordinates
           VectorXd ptsxCar(ptsx.size());
           VectorXd ptsyCar(ptsy.size());
           for(size_t i = 0; i < ptsx.size(); ++i) {
             double dx = ptsx[i] - px;
             double dy = ptsy[i] - py;
-            ptsxCar(i) = dx * cos(-psi) - dy * sin(-psi);
-            ptsyCar(i) = dx * sin(-psi) + dy * cos(-psi);
+            ptsxCar(i) = dx * cos(psi) + dy * sin(psi);
+            ptsyCar(i) = - dx * sin(psi) + dy * cos(psi);
           }
 
-          // TODO: fit a polynomial to the above x and y coordinates
+          // fit a polynomial to the above x and y coordinates in car coordinates
           auto coeffs = polyfit(ptsxCar, ptsyCar, 3);
 
-          double cte = polyeval(coeffs, px);
+         // car is at (0,0) inand thus simplified errors
+          double cte = polyeval(coeffs, 0.0);
           double epsi = -atan(coeffs[1]);
 
-          Eigen::VectorXd state(6);
-          state << 0, 0, 0, v, cte, epsi;
-          vector<double> vars = mpc.Solve(state, coeffs);
+          // handle latency
+          // assume the car keeps moving for the latency duration before the new actuations kick in
+          double dtLatency = latency * 0.001; // ms to s
+          double pxPred = 0.0 + v * dtLatency; // cos(0) == 1
+          double pyPred = 0.0; // sin(0) == 0
+          double psiPred = 0.0 + v * -delta / Lf * dtLatency;
+          double vPred = v + a * dtLatency;
+          double ctePred = cte + v * sin(epsi) * dtLatency;
+          double epsiPred = epsi + v * -delta / Lf * dtLatency;
 
-          double steer_value = - vars[0] / deg2rad(25);
+          Eigen::VectorXd state(6);
+          state << pxPred, pyPred, psiPred, vPred, ctePred, epsiPred;
+
+          // calculate modeled states and actuators
+          vector<double> vars = mpc.Solve(state, coeffs);
+          double steer_value = - vars[0] / deg2rad(25); // map to [-1, 1] and flip
           double throttle_value = vars[1];
 
+          // build message
           json msgJson;
-          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
-          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle_value;
 
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Green line
 
-          size_t N = (vars.size() - 2)/2;
           //Display the MPC predicted trajectory
+          size_t N = (vars.size() - 2)/2;
           vector<double> mpc_x_vals(N);
           vector<double> mpc_y_vals(N);
           std::copy(vars.begin()+2, vars.begin()+2+N, mpc_x_vals.begin());
-          std::copy(vars.begin()+2+N, vars.end(), mpc_y_vals.end());
+          std::copy(vars.begin()+2+N, vars.end(), mpc_y_vals.begin());
 
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
@@ -105,12 +118,9 @@ int main() {
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Yellow line
-
-          for(int i = 0; i < ptsxCar.size(); ++i) {
-              next_x_vals.push_back(ptsxCar(i));
-              next_y_vals.push_back(ptsyCar(i));
+          for(int i = 0; i < 20; i+= 5) {
+              next_x_vals.push_back(i);
+              next_y_vals.push_back(polyeval(coeffs, i));
             }
 
           msgJson["next_x"] = next_x_vals;
@@ -128,7 +138,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          this_thread::sleep_for(chrono::milliseconds(latency));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
