@@ -70,7 +70,7 @@ int main() {
             double dx = ptsx[i] - px;
             double dy = ptsy[i] - py;
             ptsxCar(i) = dx * cos(psi) + dy * sin(psi);
-            ptsyCar(i) = - dx * sin(psi) + dy * cos(psi);
+            ptsyCar(i) = dy * cos(psi) - dx * sin(psi);
           }
 
           // fit a polynomial to the above x and y coordinates in car coordinates
@@ -85,17 +85,17 @@ int main() {
           double dtLatency = latency * 0.001; // ms to s
           double pxPred = 0.0 + v * dtLatency; // cos(0) == 1
           double pyPred = 0.0; // sin(0) == 0
-          double psiPred = 0.0 + v * -delta / Lf * dtLatency;
+          double psiPred = 0.0 - v * delta / Lf * dtLatency;
           double vPred = v + a * dtLatency;
           double ctePred = cte + v * sin(epsi) * dtLatency;
-          double epsiPred = epsi + v * -delta / Lf * dtLatency;
+          double epsiPred = epsi - v * delta / Lf * dtLatency;
 
           Eigen::VectorXd state(6);
           state << pxPred, pyPred, psiPred, vPred, ctePred, epsiPred;
 
           // calculate modeled states and actuators
           vector<double> vars = mpc.Solve(state, coeffs);
-          double steer_value = - vars[0] / deg2rad(25); // map to [-1, 1] and flip
+          double steer_value = vars[0] / (deg2rad(25) * Lf); // map to [-1, 1] and scale with turn radius
           double throttle_value = vars[1];
 
           // build message
@@ -118,9 +118,9 @@ int main() {
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
-          for(int i = 0; i < 20; i+= 5) {
-              next_x_vals.push_back(i);
-              next_y_vals.push_back(polyeval(coeffs, i));
+          for(int i = 1; i <= 20; ++i) {
+              next_x_vals.push_back(i*3);
+              next_y_vals.push_back(polyeval(coeffs, i*3));
             }
 
           msgJson["next_x"] = next_x_vals;

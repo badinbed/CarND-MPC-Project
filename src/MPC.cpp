@@ -9,15 +9,15 @@ using CppAD::AD;
 // TODO: Set the timestep length and duration
 const size_t N = 10;
 const double dt = 0.1;
-const double v_ref = 120;
+const double v_ref = 80;
 
-const double k_cte = 2000;
-const double k_epsi = 2000;
-const double k_v = 1;
-const double k_psi = 10;
-const double k_a = 10;
-const double k_dpsi = 100;
-const double k_da = 10;
+const double k_cte = 200;
+const double k_epsi = 200;
+const double k_v = 0.1;
+const double k_psi = 1;
+const double k_a = 1;
+const double k_dpsi = 10;
+const double k_da = 1;
 
 const size_t x_start = 0;
 const size_t y_start = x_start + N;
